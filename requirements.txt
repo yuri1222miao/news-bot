@@ -1,0 +1,4 @@
+openai>=1.88.0
+requests>=2.32.0
+feedparser>=6.0.11
+markdown>=3.6
