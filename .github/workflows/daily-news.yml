@@ -1,0 +1,75 @@
+name: Daily news reports
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+    - cron: "30 12 * * *"
+  workflow_dispatch:
+    inputs:
+      report_type:
+        description: "Report type"
+        required: true
+        default: "morning"
+        type: choice
+        options:
+          - morning
+          - evening
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Decide report type
+        id: report
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.report_type }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 23 * * *" ]; then
+            echo "type=morning" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=evening" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate report
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+        run: python scripts/generate_report.py --type "${{ steps.report.outputs.type }}"
+
+      - name: Send report to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram.py --type "${{ steps.report.outputs.type }}"
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-report-${{ steps.report.outputs.type }}
+          path: outputs/
+
+      - name: Commit generated reports
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs/
+          git diff --cached --quiet || git commit -m "Add ${{ steps.report.outputs.type }} news report"
+          git push
